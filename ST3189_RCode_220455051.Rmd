@@ -1,0 +1,433 @@
+setwd("C:/Users/Xavier Chia/Downloads/University Notes/ML/Coursework")
+getwd()
+
+---------------------------------------------------------------------
+---------------------------------------------------------------------
+
+# Unsupervised Learning
+
+# Load necessary libraries
+library(ggplot2)
+library(factoextra)
+
+# Load the dataset
+dataset_UL <- read.csv("Sleep_health_and_lifestyle_dataset.csv")
+
+# Display basic information
+str(dataset_UL)
+
+# Remove "Person ID" column
+dataset_UL <- subset(dataset_UL, select = -c(Person.ID))
+
+# Convert categorical columns to numeric (label encoding)
+for (col in colnames(dataset_UL)) {
+  if (is.factor(dataset_UL[[col]]) || is.character(dataset_UL[[col]])) {
+    dataset_UL[[col]] <- as.numeric(as.factor(dataset_UL[[col]]))
+  }
+}
+
+# Handle missing values by replacing with column mean
+dataset_UL <- as.data.frame(lapply(dataset_UL, function(x) ifelse(is.na(x), mean(x, na.rm = TRUE), x)))
+
+# Standardize data
+scaled_data <- scale(dataset_UL)
+
+---------------------------------------------------------------------
+
+# Principal Component Analysis (PCA)
+pca_model <- prcomp(scaled_data, center = TRUE, scale. = TRUE)
+
+# Calculate variance explained and cumulative variance explained
+var_explained <- (pca_model$sdev^2) / sum(pca_model$sdev^2)
+cum_var <- cumsum(var_explained)
+
+# Create a data frame for plotting
+pca_variance <- data.frame(
+  Principal_Component = seq_along(var_explained),
+  Variance_Explained = var_explained,  
+  Cumulative_Variance = cum_var
+)
+
+# Plot the variance explained and cumulative variance explained against principal component
+ggplot(pca_variance, aes(x = Principal_Component)) +
+  geom_bar(aes(y = Variance_Explained), stat = "identity", fill = "steelblue", alpha = 0.7) +
+  geom_line(aes(y = Cumulative_Variance), color = "red", size = 1) +
+  geom_point(aes(y = Cumulative_Variance), color = "red", size = 2) +
+  scale_y_continuous(sec.axis = sec_axis(~., name = "Cumulative Variance Explained")) +
+  labs(
+    title = "Principal Component Analysis - Variance Explained",
+    x = "Principal Component",
+    y = "Variance Explained"
+  ) +
+  theme_minimal()
+
+
+# Extract coefficients (loadings) for the first 4 principal components
+pca_loadings <- pca_model$rotation[, 1:4]
+
+# Print the coefficients (loadings) for the first 4 principal components
+print("PCA Loadings (Coefficients) for the First 4 Principal Components:"); print(pca_loadings)
+
+# Print the summary for PCA model
+summary(pca_model)
+
+---------------------------------------------------------------------
+
+# Clustering (K-Means & Hierarchical)
+# Create a dataframe with variables that contribute to a cumulative variance of 82.5%
+pc <- scaled_data[,c(1,2,3,4)]
+
+# K-Means Clustering (Elbow & Silhouette)
+# Determine optimal number of clusters using the elbow method
+fviz_nbclust(pc, kmeans, method = "wss")
+
+# Determine optimal number of clusters using the silhouette method
+fviz_nbclust(pc, kmeans, method = "silhouette")
+
+# Plotting cluster plot based on best model.
+set.seed(123)   #Ensures reproducibility by setting a fixed random seed.
+
+# Best model
+best_model <- kmeans(scaled_data, centers = 6, nstart = 100)
+
+# Plot best model
+fviz_cluster(best_model, data = scaled_data,
+             palette = c("#2E9FDF", "#00AFBB", "#E7B800", "#FF3333", "#009900", "#FF99CC"),
+             geom = "point",
+             ellipse.type = "convex",
+             ggtheme = theme_bw()
+             )
+
+---------------------------------------------------------------------
+
+# Hierarchical Clustering (Ward's Method)
+# Compute the distance matrix
+dist_matrix <- dist(scaled_data, method = "euclidean")
+
+# Perform hierarchical clustering using Ward's method
+hc_ward <- hclust(dist_matrix, method = "ward.D2")
+
+# Plot the dendrogram
+plot(hc_ward, main = "Dendrogram using Ward's Method", 
+     xlab = "Observations", ylab = "Height", 
+     sub = "", cex = 0.7)
+rect.hclust(hc_ward, k = 6, border = 2:7)
+
+---------------------------------------------------------------------
+---------------------------------------------------------------------
+
+# Regression
+
+# Load necessary libraries
+library(MASS)
+library(dplyr)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(ggplot2)
+library(knitr)
+
+# Load the dataset
+dataset_R <- read.csv("Medicalpremium.csv")
+
+# Make height in M 
+dataset_R$Height = dataset_R$Height/100
+# Calculate BMI using weight/height^2
+dataset_R$BMI = dataset_R$Weight /((dataset_R$Height)^2)
+
+# Set seed for reproducibility
+set.seed(123)
+
+# Create a 70-30 train-test split
+data_R <- dataset_R %>% mutate(row_id = row_number())
+train_data_R <- data_R %>% sample_frac(0.7)
+test_data_R <- data_R %>% anti_join(train_data_R, by = "row_id")
+
+---------------------------------------------------------------------
+
+# Linear Regression
+# Fit a linear regression model using the training set
+model <- lm(PremiumPrice ~ . - Height - Weight - row_id, data = train_data_R)
+summary(model)
+
+# Perform stepwise selection
+optimal_model <- stepAIC(model, direction = "both")
+summary(optimal_model)
+
+# Generate diagnostic plots
+par(mfrow = c(2,2))
+plot(optimal_model)
+
+# Predict on the test set
+predictions <- predict(optimal_model, newdata = test_data_R)
+
+# Compute metrics
+r_squared <- function(actual, predicted) {
+  ss_total <- sum((actual - mean(actual))^2)
+  ss_residual <- sum((actual - predicted)^2)
+  return(1 - (ss_residual / ss_total))
+}
+
+mae <- function(actual, predicted) {
+  return(mean(abs(actual - predicted)))
+}
+
+rmse <- function(actual, predicted) {
+  return(sqrt(mean((actual - predicted)^2)))
+}
+
+# Compute metrics for Linear Regression
+r2_lr <- r_squared(test_data_R$PremiumPrice, predictions)
+mae_lr <- mae(test_data_R$PremiumPrice, predictions)
+rmse_lr <- rmse(test_data_R$PremiumPrice, predictions)
+
+# Print results
+print(paste("R-squared:", r2_lr))
+print(paste("MAE:", mae_lr))
+print(paste("RMSE:", rmse_lr))
+
+---------------------------------------------------------------------
+
+# Classification & Regression Tree (CART) 
+# Train a regression tree model
+tree_model <- rpart(PremiumPrice ~ . - Height - Weight - row_id, data = train_data_R, method = "anova")
+
+# Print summary of the tree
+summary(tree_model)
+
+# Visualize the tree
+par(mfrow = c(1,1))
+rpart.plot(tree_model, type = 3, fallen.leaves = TRUE, box.palette = "Blues")
+
+printcp(tree_model)
+plotcp(tree_model)
+
+cp <- 0.01
+tree_pruned <- prune(tree_model, cp = cp)
+rpart.plot(tree_pruned, nn = T)
+
+# Make predictions on test data
+tree_predictions <- predict(tree_pruned, newdata = test_data_R)
+
+# Compute metrics for Regression Tree
+r2_tree <- r_squared(test_data_R$PremiumPrice, tree_predictions)
+mae_tree <- mae(test_data_R$PremiumPrice, tree_predictions)
+rmse_tree <- rmse(test_data_R$PremiumPrice, tree_predictions)
+
+# Print results
+print(paste("R-squared:", r2_tree))
+print(paste("MAE:", mae_tree))
+print(paste("RMSE:", rmse_tree))
+
+---------------------------------------------------------------------
+
+# Random Forest
+# Train a Random Forest model 
+rf_model <- randomForest(PremiumPrice ~ . - Height - Weight - row_id, data = train_data_R, ntree = 500, mtry = 3, importance = TRUE)
+
+# Print model summary
+print(rf_model)
+
+# Plot variable importance
+varImpPlot(rf_model)
+
+# Make predictions on test data
+rf_predictions <- predict(rf_model, newdata = test_data_R)
+
+# Create a data frame for actual vs. predicted values
+results <- data.frame(Actual = test_data_R$PremiumPrice, Predicted = rf_predictions)
+
+# Plot Actual vs. Predicted values
+ggplot(results, aes(x = Actual, y = Predicted)) +
+  geom_point(color = "blue", alpha = 0.5) +  # Scatter plot
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +  # Ideal line
+  labs(title = "Actual vs. Predicted Premium Prices",
+       x = "Actual Premium Price",
+       y = "Predicted Premium Price") +
+  theme_minimal()
+
+# Compute metrics for Random Forest
+r2_rf <- r_squared(test_data_R$PremiumPrice, rf_predictions)
+mae_rf <- mae(test_data_R$PremiumPrice, rf_predictions)
+rmse_rf <- rmse(test_data_R$PremiumPrice, rf_predictions)
+
+# Print results
+print(paste("R-squared:", r2_rf))
+print(paste("MAE:", mae_rf))
+print(paste("RMSE:", rmse_rf))
+
+---------------------------------------------------------------------
+
+# Create a summary table
+results_table <- data.frame(
+  Model = c("Linear Regression", "Regression Tree", "Random Forest"),
+  R_Squared = c(r2_lr, r2_tree, r2_rf),
+  MAE = c(mae_lr, mae_tree, mae_rf),
+  RMSE = c(rmse_lr, rmse_tree, rmse_rf)
+)
+
+kable(results_table, digits = 4, caption = "Performance Comparison of ML Models")
+
+---------------------------------------------------------------------
+---------------------------------------------------------------------
+
+# Classification
+
+# Load required libraries
+library(caTools)
+library(caret)
+library(dplyr)
+library(ROSE)
+library(e1071)
+library(nnet)
+library(NeuralNetTools)
+library(knitr)
+
+# Load the dataset
+data_C <- read.csv("Student_performance_data _.csv")
+
+# Convert categorical columns to factors
+for (col in colnames(data_C)) {
+  if (is.character(data_C[[col]])) {
+    data_C[[col]] <- as.factor(data_C[[col]])
+  }
+}
+
+# Convert 'GradeClass' into a binary target variable
+data_C$GradeClass <- ifelse(data_C$GradeClass %in% c(0, 1), "Good", "Bad")
+
+# Convert the new target variable to a factor
+data_C$GradeClass <- as.factor(data_C$GradeClass)
+
+# Set seed for reproducibility
+set.seed(123)
+
+# Oversampling using ROSE (since more 0s than 1s)
+dataset_C <- ovun.sample(GradeClass ~ . - StudentID, data = data_C, method = "over")$data
+
+# Verify transformation
+table(dataset_C$GradeClass)
+
+# Create a 70-30 train-test split
+trainIndex <- createDataPartition(dataset_C$GradeClass, p = 0.7, list = FALSE)
+train_data_C <- dataset_C[trainIndex, ]
+test_data_C <- dataset_C[-trainIndex, ]
+
+---------------------------------------------------------------------
+
+# Logistic Regression
+# Train logistic regression model
+logistic_model <- glm(GradeClass ~ . - StudentID, data = train_data_C, family = binomial)
+
+# Make predictions
+logistic_predictions_prob <- predict(logistic_model, test_data_C, type = "response")
+logistic_predictions <- factor(ifelse(logistic_predictions_prob > 0.5, "Good", "Bad"), levels = c("Bad", "Good"))
+
+# Create confusion matrix
+logistic_conf_matrix <- confusionMatrix(logistic_predictions, test_data_C$GradeClass)
+print(logistic_conf_matrix)
+
+logistic_prediction_error <- mean(logistic_predictions != test_data_C$GradeClass)
+
+# Calculate accuracy
+logistic_accuracy <- 1 - sum(logistic_prediction_error)
+cat("Accuracy:", logistic_accuracy)
+
+---------------------------------------------------------------------
+
+# Support Vector Machine (SVM)
+# Train SVM model
+svm_model <- svm(GradeClass ~ . - StudentID, data = train_data_C, type = "C-classification", kernel = "linear")
+
+# Make predictions
+svm_predictions_prob <- predict(svm_model, test_data_C)
+svm_predictions <- factor(svm_predictions_prob, levels = c("Bad", "Good"))
+
+# Create confusion matrix
+svm_conf_matrix <- confusionMatrix(svm_predictions, test_data_C$GradeClass)
+print(svm_conf_matrix)
+
+svm_prediction_error <- mean(svm_predictions != test_data_C$GradeClass)
+
+# Calculate Accuracy
+svm_accuracy <- 1 - sum(svm_prediction_error)
+cat("SVM Accuracy:", svm_accuracy)
+
+# Get the coefficients (weights) of the linear model
+svm_coefficients <- coef(svm_model)
+
+# Print the coefficients
+print(svm_coefficients)
+
+# To understand feature importance, we look at the absolute value of the coefficients
+feature_importance <- abs(svm_coefficients)
+sorted_feature_importance <- sort(feature_importance, decreasing = TRUE)
+
+# Print the sorted feature importance
+cat("Feature Importance based on SVM Coefficients:\n")
+print(sorted_feature_importance)
+
+# Train SVM using only two features for visualization
+svm_2d <- svm(GradeClass ~ GPA + Absences, data = train_data_C, kernel = "radial", cost = 1, gamma = 0.1)
+
+# Create a grid of values for plotting
+x_min <- min(train_data_C$GPA) - 1
+x_max <- max(train_data_C$GPA) + 1
+y_min <- min(train_data_C$Absences) - 1
+y_max <- max(train_data_C$Absences) + 1
+
+grid <- expand.grid(GPA = seq(x_min, x_max, length.out = 100),
+                    Absences = seq(y_min, y_max, length.out = 100))
+
+# Predict on the grid
+grid$Prediction <- predict(svm_2d, newdata = grid)
+
+# Convert to factor for plotting
+grid$Prediction <- as.factor(grid$Prediction)
+
+# Plot decision boundary
+ggplot(train_data_C, aes(x = GPA, y = Absences, color = GradeClass)) +
+  geom_point(size = 2, alpha = 0.7) +  # Data points
+  geom_contour(data = grid, aes(z = as.numeric(Prediction)), breaks = 1.5, color = "black") +  # Decision boundary
+  labs(title = "SVM Decision Boundary (Hyperplane)", x = "GPA", y = "Absences") +
+  theme_minimal()
+
+---------------------------------------------------------------------
+
+# Neural Networks
+# Train Neural Network Model
+nn_model <- nnet(GradeClass ~ . - StudentID, data = train_data_C, size = 5, maxit = 1000, decay = 0.01, linout = FALSE)
+
+# Make predictions
+nn_predictions_prob <- predict(nn_model, test_data_C, type = "class")
+nn_predictions <- factor(nn_predictions_prob, levels = c("Bad", "Good"))
+
+# Create confusion matrix
+nn_conf_matrix <- confusionMatrix(nn_predictions, test_data_C$GradeClass)
+print(nn_conf_matrix)
+
+nn_prediction_error <- mean(nn_predictions != test_data_C$GradeClass)
+
+# Calculate Accuracy
+nn_accuracy <- 1 - sum(nn_prediction_error)
+cat("Neural Network Accuracy:", nn_accuracy)
+
+# Plot the Neural Network Diagram
+plotnet(nn_model)
+
+---------------------------------------------------------------------
+
+# Create a summary table
+results_table <- data.frame(
+  Model = c("Logistic Regression", "SVM", "Neural Network"),
+  Accuracy = c(logistic_accuracy, svm_accuracy, nn_accuracy)
+)
+
+kable(results_table, digits = 4, caption = "Performance Comparison of ML Models")
+
+---------------------------------------------------------------------
+---------------------------------------------------------------------
+
+
+
+
