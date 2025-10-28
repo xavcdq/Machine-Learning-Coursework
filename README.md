@@ -14,4 +14,4 @@ Grade achieved: 73 / 100
 - Regression: Linear Regression, Classification and Regression Trees, Random Forest
 - Classification: Logistic Regression, Support Vector Machine, Neural Networks
 
-All modelling was carried out in Python.
+All modelling and analysis was carried out in R.
